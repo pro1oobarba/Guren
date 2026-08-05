@@ -9,6 +9,8 @@
   "main": "index.js",
   "scripts": {
     "start": "node --env-file=.env index.js",
-    "health": "node --env-file=.env -e \"import('./kernel.js').then(({ AI }) => AI.init())\""
+    "health": "node --env-file=.env -e \"import('./kernel.js').then(({ AI }) => AI.init())\"",
+    "doctor": "node scripts/checkEnv.js",
+    "test": "node --test"
   }
 }

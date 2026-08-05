@@ -12,6 +12,10 @@ const TASK_KEYWORDS = {
   general: ['instruct', 'chat'],
 };
 
+// ping() в HealthChecker уже был с таймаутом — реальный chat() в execute()
+// таймаута не имел вообще: зависший провайдер вешал AI.generate() навсегда.
+const DEFAULT_TIMEOUT_MS = 45_000;
+
 export class Router {
   constructor({ providers, registry }) {
     this.providers = providers;
@@ -45,8 +49,8 @@ export class Router {
     return scored.sort((a, b) => b.score - a.score);
   }
 
-  /** Пробует модели по рангу, при ошибке помечает мёртвой и переходит к следующей (авто-fallback) */
-  async execute({ task, messages }) {
+  /** Пробует модели по рангу, при ошибке/таймауте помечает мёртвой и переходит к следующей (авто-fallback) */
+  async execute({ task, messages, timeoutMs = DEFAULT_TIMEOUT_MS }) {
     const candidates = this.rank(task);
     if (!candidates.length) {
       throw new Error('Нет доступных моделей — запусти AI.init() для health-check или проверь .env');
@@ -57,14 +61,19 @@ export class Router {
       const provider = this.providers[candidate.provider];
       if (!provider?.enabled) continue;
 
+      const controller = new AbortController();
+      const timer = setTimeout(() => controller.abort(), timeoutMs);
       try {
         log.info(`→ пробуем ${candidate.provider}/${candidate.modelId}`);
-        const text = await provider.chat(candidate.modelId, messages);
+        const text = await provider.chat(candidate.modelId, messages, { signal: controller.signal });
         return { text, provider: candidate.provider, modelId: candidate.modelId };
       } catch (err) {
-        lastError = err;
-        log.warn(`✗ ${candidate.provider}/${candidate.modelId} — ${err.message}, пробуем следующую модель`);
-        this.registry.upsert(candidate.provider, candidate.modelId, { alive: false, error: err.message });
+        const message = err.name === 'AbortError' ? `таймаут ${timeoutMs}мс` : err.message;
+        lastError = new Error(message);
+        log.warn(`✗ ${candidate.provider}/${candidate.modelId} — ${message}, пробуем следующую модель`);
+        this.registry.upsert(candidate.provider, candidate.modelId, { alive: false, error: message });
+      } finally {
+        clearTimeout(timer);
       }
     }
 

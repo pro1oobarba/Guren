@@ -85,11 +85,11 @@ export class AIKernel {
   }
 
   /** Базовый генератор. task влияет только на выбор модели, не на формат ответа. */
-  async generate({ task = 'general', prompt, sessionId, systemPrompt }) {
+  async generate({ task = 'general', prompt, sessionId, systemPrompt, timeoutMs }) {
     if (!prompt) throw new Error('generate(): параметр prompt обязателен');
 
     const messages = this.memory.buildMessages(sessionId, { systemPrompt, prompt });
-    const result = await this.router.execute({ task, messages });
+    const result = await this.router.execute({ task, messages, ...(timeoutMs && { timeoutMs }) });
 
     this.memory.append(sessionId, 'user', prompt);
     this.memory.append(sessionId, 'assistant', result.text);
