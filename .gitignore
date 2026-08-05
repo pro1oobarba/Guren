@@ -2,5 +2,6 @@
 node_modules/
 health-report.json
 memory-store.json
+usage.json
 .claude/settings.local.json
 *.log

@@ -16,11 +16,12 @@ import { getModelTier } from './router/modelTiers.js';
 import { classifyTask } from './router/classifyTask.js';
 import { HealthChecker } from './benchmark/HealthChecker.js';
 import { MemoryManager } from './memory/MemoryManager.js';
+import { UsageTracker } from './utils/usageTracker.js';
 import { log } from './utils/logger.js';
 
 /**
  * @typedef {'general' | 'code' | 'roleplay' | 'analysis'} TaskType
- * @typedef {{ text: string, toolCalls: object[] | null, provider: string, modelId: string }} GenerateResult
+ * @typedef {{ text: string, toolCalls: object[] | null, usage: { promptTokens: number, completionTokens: number } | null, provider: string, modelId: string }} GenerateResult
  * @typedef {object} GenerateArgs
  * @property {TaskType} [task] влияет только на выбор модели, не на формат ответа; не передан — определяется эвристикой по prompt (см. router/classifyTask.js)
  * @property {string} prompt обязателен
@@ -86,6 +87,7 @@ export class AIKernel {
     this.router = new Router({ providers: this.providers, registry: this.registry });
     this.memory = new MemoryManager();
     this.health = new HealthChecker({ providers: this.providers, registry: this.registry });
+    this.usage = new UsageTracker();
   }
 
   /** Запускает health-check всех провайдеров и сохраняет отчёт в JSON */
@@ -175,8 +177,14 @@ export class AIKernel {
     // сам факт хода ассистента в истории не хочется. Пишем как есть: пустая
     // строка допустима, вызывающий код видит toolCalls в возвращаемом result.
     this.memory.append(sessionId, 'assistant', result.text);
+    this.usage.record(result.provider, result.modelId, result.usage);
 
     return result;
+  }
+
+  /** Расход за сегодня по провайдеру/модели — см. utils/usageTracker.js. */
+  usageToday() {
+    return this.usage.today();
   }
 
   /** Сахарная обёртка над generate() с task: 'code'. @param {Omit<GenerateArgs, 'task'>} args @returns {Promise<GenerateResult>} */

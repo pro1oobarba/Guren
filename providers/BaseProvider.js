@@ -59,7 +59,13 @@ export class BaseProvider {
     }
     const data = await res.json();
     const message = data.choices?.[0]?.message ?? {};
-    return { content: message.content ?? '', toolCalls: message.tool_calls ?? null };
+    return {
+      content: message.content ?? '',
+      toolCalls: message.tool_calls ?? null,
+      usage: data.usage
+        ? { promptTokens: data.usage.prompt_tokens ?? 0, completionTokens: data.usage.completion_tokens ?? 0 }
+        : null,
+    };
   }
 
   /**
@@ -149,7 +155,10 @@ export class BaseProvider {
       reader.releaseLock();
     }
 
-    return { content, toolCalls: null };
+    // usage не собираем в стриме: провайдеры отдают токены-статистику
+    // только с явным stream_options.include_usage, и не все её вообще
+    // поддерживают — не стали добавлять ради необязательного usage.json.
+    return { content, toolCalls: null, usage: null };
   }
 
   /**

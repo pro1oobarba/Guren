@@ -87,6 +87,7 @@ export class Router {
         return {
           text: result.content,
           toolCalls: result.toolCalls ?? null,
+          usage: result.usage ?? null,
           provider: candidate.provider,
           modelId: candidate.modelId,
         };
