@@ -36,33 +36,40 @@ HuggingFace** (router через Inference Providers). DeepInfra и Hyperbolic
 
 ```
 ai-kernel/
-├── .env.example        # шаблон для ключей
+├── .env.example         # шаблон для ключей
 ├── package.json
-├── kernel.js            # AI — главный фасад
-├── index.js             # CLI-демонстрация
+├── kernel.js             # AI — главный фасад (main пакета)
+├── index.js              # CLI-демонстрация (npm start)
 ├── providers/
-│   ├── BaseProvider.js  # абстрактный класс
+│   ├── BaseProvider.js   # общая логика: OpenAI-совместимый чат/стрим, ping()
 │   ├── groq.js
 │   ├── openrouter.js
-│   ├── cloudflare.js
+│   ├── cloudflare.js     # свой формат (не OpenAI-совместимый): без tools/stream/usage
 │   ├── cerebras.js
 │   ├── sambanova.js
-│   ├── deepinfra.js     # выключен по умолчанию, см. PROVIDERS_DISABLED
-│   ├── hyperbolic.js    # выключен по умолчанию, см. PROVIDERS_DISABLED
+│   ├── deepinfra.js      # выключен по умолчанию, см. PROVIDERS_DISABLED
+│   ├── hyperbolic.js     # выключен по умолчанию, см. PROVIDERS_DISABLED
 │   ├── gemini.js
 │   ├── huggingface.js
-│   └── github.js        # заглушка, см. выше
+│   └── github.js         # заглушка, см. выше
 ├── registry/
-│   └── ModelRegistry.js # стейт моделей: жива/мертва/остывает, задержка
+│   └── ModelRegistry.js  # стейт моделей: жива/мертва/остывает, задержка
 ├── router/
-│   ├── Router.js         # ранжирование под задачу + auto-fallback
-│   └── modelTiers.js     # таблица "силы" модели по семейству
+│   ├── Router.js          # ранжирование под задачу + auto-fallback + таймаут
+│   ├── modelTiers.js      # таблица "силы" модели по семейству
+│   └── classifyTask.js    # эвристика task по тексту промпта, если не передан явно
 ├── benchmark/
-│   └── HealthChecker.js # пингует все модели при старте
+│   └── HealthChecker.js  # пингует все модели при старте
 ├── memory/
-│   └── MemoryManager.js # история сообщений по sessionId, персистентно
-└── utils/
-    └── logger.js         # цветной вывод в консоль
+│   └── MemoryManager.js  # история сообщений по sessionId, персистентно
+├── utils/
+│   ├── logger.js          # цветной вывод в консоль (+ опционально в файл, LOG_FILE)
+│   └── usageTracker.js    # usage.json — запросы/токены в день по провайдеру
+├── scripts/
+│   ├── checkEnv.js         # npm run doctor — линтер .env
+│   ├── checkSecrets.js     # pre-commit хук — блокирует известные форматы ключей
+│   └── installHooks.js     # npm run hooks:install
+└── test/                 # npm test (node:test, без зависимостей)
 ```
 
 ## Шаг 1. Установи Node.js 22+
@@ -112,6 +119,13 @@ npm run start
 npm run health
 ```
 
+Другие полезные команды:
+```
+npm run doctor         # проверить .env на битые строки/пустые ключи/утечки в комментариях
+npm test                # автотесты (node:test, без зависимостей)
+npm run hooks:install   # поставить git pre-commit хук против утечки секретов
+```
+
 ## Как использовать в своём проекте
 
 ```js
@@ -121,7 +135,7 @@ import { AI } from './kernel.js';
 await AI.init();
 
 const result = await AI.generate({
-  task: 'roleplay',           // 'code' | 'roleplay' | 'analysis' | 'general'
+  task: 'roleplay',           // 'code' | 'roleplay' | 'analysis' | 'general' — необязателен, см. ниже
   prompt: 'Опиши таверну в маленьком городке',
   sessionId: 'user-123',      // история этого sessionId учитывается автоматически
   systemPrompt: 'Ты — рассказчик фэнтези-мира',
@@ -130,6 +144,7 @@ const result = await AI.generate({
 console.log(result.text);      // текст ответа
 console.log(result.provider);  // какой провайдер ответил, напр. "groq"
 console.log(result.modelId);   // какая именно модель
+console.log(result.usage);     // { promptTokens, completionTokens } | null
 ```
 
 Сахарные обёртки — то же самое, что `generate()`, но с зафиксированным `task`:
@@ -138,6 +153,43 @@ await AI.code({ prompt: '...' });
 await AI.roleplay({ prompt: '...' });
 await AI.analyze({ prompt: '...' });
 ```
+
+`task` можно не передавать вообще — эвристика по тексту промпта
+(`router/classifyTask.js`) сама определит code/roleplay/analysis/general.
+
+### Стриминг
+
+```js
+const result = await AI.generate({
+  prompt: 'Напиши короткий рассказ',
+  sessionId: 'user-123',
+  stream: true,
+  onToken: (delta) => process.stdout.write(delta), // кусок текста, по мере поступления
+});
+console.log(result.text); // полный склеенный текст доступен и после стрима
+```
+
+### Инструменты (tool-calling)
+
+```js
+const result = await AI.generate({
+  prompt: 'Какая погода в Москве?',
+  sessionId: 'user-123',
+  tools: [{ type: 'function', function: { name: 'get_weather', parameters: { /* ... */ } } }],
+  toolChoice: 'auto',
+});
+console.log(result.toolCalls); // [{ id, function: { name, arguments } }] | null
+```
+Не совмещай `tools` и `stream` в одном вызове — во время стрима
+tool_calls не собираются (см. `providers/BaseProvider.js`). Cloudflare
+не поддерживает ни то, ни другое (свой формат ответа).
+
+### Учёт расхода
+
+```js
+console.log(AI.usageToday()); // { groq: { 'llama-3.3-70b': { requests, promptTokens, completionTokens } }, ... }
+```
+Пишется в `usage.json` (в `.gitignore`) после каждого успешного `generate()`.
 
 ## Как добавить нового провайдера
 
@@ -155,6 +207,12 @@ await AI.analyze({ prompt: '...' });
 проекта (в `.gitignore`, не публикуется). Рестарт процесса не обнуляет
 диалог — `MemoryManager` подгружает файл при старте. API не изменился
 (`AI.generate({ sessionId })` работает как раньше).
+
+Два независимых лимита защищают от бесконечного роста: не больше 60
+последних сообщений хранится на диске на сессию, и не больше ~24 000
+символов (≈6000 токенов) реально уходит в запрос модели за раз — старое
+обрезается, самое свежее сообщение отдаётся всегда, даже если оно само
+больше бюджета.
 
 ## Выключить провайдера без правки кода
 

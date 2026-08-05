@@ -72,23 +72,36 @@ ai-kernel/
 │   └── ModelRegistry.js          # стейт: жива/мертва/остывает (cooldown), задержка
 │
 ├── 🧭 Маршрутизация (router/)
-│   ├── Router.js                 # ранжирование под задачу + авто-fallback
-│   └── modelTiers.js             # таблица "силы" модели по семейству (tier 1-3)
+│   ├── Router.js                 # ранжирование под задачу + авто-fallback + таймаут
+│   ├── modelTiers.js             # таблица "силы" модели по семейству (tier 1-3)
+│   └── classifyTask.js           # эвристика task по промпту, если не передан явно
 │
 ├── 💪 Диагностика (benchmark/)
 │   └── HealthChecker.js          # пингует модели, записывает результаты
 │
 ├── 🧠 Память (memory/)
-│   └── MemoryManager.js          # история сообщений по sessionId
+│   └── MemoryManager.js          # история сообщений по sessionId, персистентно
 │
 ├── 🛠️ Утилиты (utils/)
-│   └── logger.js                 # цветной логирование в консоль
+│   ├── logger.js                 # логирование в консоль (+ опционально в файл, LOG_FILE)
+│   └── usageTracker.js           # usage.json — запросы/токены в день по провайдеру
+│
+├── ⚙️ Скрипты (scripts/)
+│   ├── checkEnv.js               # npm run doctor — линтер .env
+│   ├── checkSecrets.js           # pre-commit хук — блокирует известные форматы ключей
+│   └── installHooks.js           # npm run hooks:install
+│
+├── ✅ Тесты (test/)
+│   └── *.test.js                 # npm test (node:test, без зависимостей)
 │
 └── 📖 Документация (корень)
     ├── README.md                 # общее введение
-    ├── QUICKSTART.md             # быстрый старт
-    ├── REQUIREMENTS.md           # ТЗ
-    ├── ARCHITECTURE.md           # архитектура
+    ├── GOALS.md                  # зачем проект, принципы, не-цели
+    ├── ROADMAP.md                # бэклог полировки по приоритету
+    ├── CHANGELOG.md              # история изменений и мотивация каждого решения
+    ├── QUICKSTART.md             # быстрый старт (из исходного MVP-архива)
+    ├── REQUIREMENTS.md           # исходное ТЗ
+    ├── ARCHITECTURE.md           # архитектура (из исходного MVP-архива)
     └── CONTRIBUTING.md           # рекомендации для разработки
 ```
 
