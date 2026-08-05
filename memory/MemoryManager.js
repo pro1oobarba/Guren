@@ -10,6 +10,12 @@ const DEFAULT_STORE_PATH = new URL('../memory-store.json', import.meta.url);
 const DEFAULT_MAX_STORED_MESSAGES = 60;
 const DEFAULT_MAX_CONTEXT_CHARS = 24_000; // ~6000 токенов — под самые скромные бесплатные модели
 
+// "Амнезия": без этого длинный диалог рано или поздно вытесняет самое первое
+// сообщение сессии — а это обычно системная завязка/лор ("ты волшебник в
+// городе N", листы персонажа, правила мира), которую вызывающий код положил
+// в самое начало намеренно. 2 сообщения = первая пара user+assistant.
+const DEFAULT_STICKY_MESSAGES = 2;
+
 /**
  * MemoryManager — история сообщений по sessionId, персистентная в JSON-файле.
  * Пишется синхронно на каждый append/clear: история чата — это не поток
@@ -23,10 +29,12 @@ export class MemoryManager {
     storePath = DEFAULT_STORE_PATH,
     maxStoredMessages = DEFAULT_MAX_STORED_MESSAGES,
     maxContextChars = DEFAULT_MAX_CONTEXT_CHARS,
+    stickyMessages = DEFAULT_STICKY_MESSAGES,
   } = {}) {
     this.storePath = storePath;
     this.maxStoredMessages = maxStoredMessages;
     this.maxContextChars = maxContextChars;
+    this.stickyMessages = stickyMessages;
     this.sessions = this.#load();
   }
 
@@ -60,19 +68,35 @@ export class MemoryManager {
     this.#save();
   }
 
-  /** Берёт самые свежие сообщения, пока их суммарная длина укладывается в бюджет. */
+  /**
+   * Берёт самые свежие сообщения, пока их суммарная длина укладывается в
+   * бюджет — но сначала безусловно резервирует место под первые
+   * `stickyMessages` (обычно первая пара user+assistant: завязка кампании,
+   * системный лор, лист персонажа). Без этого длинный диалог рано или
+   * поздно вытесняет именно то сообщение, которое вызывающий код положил в
+   * начало намеренно — история "продолжается", но модель забывает, с чего
+   * всё началось.
+   */
   #trimToBudget(history) {
+    if (history.length === 0) return [];
+
+    const sticky = history.slice(0, this.stickyMessages);
+    const rest = history.slice(sticky.length);
+
+    const stickyChars = sticky.reduce((sum, m) => sum + m.content.length, 0);
+    const tailBudget = this.maxContextChars - stickyChars;
+
     const kept = [];
     let total = 0;
-    for (let i = history.length - 1; i >= 0; i--) {
-      total += history[i].content.length;
+    for (let i = rest.length - 1; i >= 0; i--) {
+      total += rest[i].content.length;
       // Даже если самое свежее сообщение само по себе больше бюджета,
       // отдаём хотя бы его — пустой историей отвечать нечем, но пусто
       // разговаривать с моделью не имеет смысла.
-      if (total > this.maxContextChars && kept.length > 0) break;
-      kept.unshift(history[i]);
+      if (total > tailBudget && kept.length > 0) break;
+      kept.unshift(rest[i]);
     }
-    return kept;
+    return [...sticky, ...kept];
   }
 
   buildMessages(sessionId, { systemPrompt, prompt }) {
