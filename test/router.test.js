@@ -96,6 +96,50 @@ test('execute() пробрасывает tools/toolChoice в provider.chat и в
   assert.deepEqual(result.toolCalls, [{ id: 'call_1', function: { name: 'get_weather' } }]);
 });
 
+test('execute() пробрасывает responseFormat в provider.chat как есть', async () => {
+  const registry = new ModelRegistry();
+  registry.upsert('p', 'm', { alive: true, latency: 50 });
+
+  const responseFormat = { type: 'json_object' };
+  let receivedOptions;
+
+  const providers = {
+    p: {
+      enabled: true,
+      chat: async (_modelId, _messages, options) => {
+        receivedOptions = options;
+        return { content: '{}', toolCalls: null };
+      },
+    },
+  };
+
+  const router = new Router({ providers, registry });
+  await router.execute({ task: 'general', messages: [], responseFormat });
+
+  assert.equal(receivedOptions.responseFormat, responseFormat, 'responseFormat должен дойти до provider.chat как есть');
+});
+
+test('execute() пробрасывает maxTokens в provider.chat как есть', async () => {
+  const registry = new ModelRegistry();
+  registry.upsert('p', 'm', { alive: true, latency: 50 });
+
+  let receivedOptions;
+  const providers = {
+    p: {
+      enabled: true,
+      chat: async (_modelId, _messages, options) => {
+        receivedOptions = options;
+        return { content: 'ok', toolCalls: null };
+      },
+    },
+  };
+
+  const router = new Router({ providers, registry });
+  await router.execute({ task: 'general', messages: [], maxTokens: 2048 });
+
+  assert.equal(receivedOptions.maxTokens, 2048, 'maxTokens должен дойти до provider.chat как есть');
+});
+
 test('с инъекцией random=() => 0 джиттер не ломает стабильный порядок (регресс на детерминированность теста)', () => {
   const registry = new ModelRegistry();
   registry.upsert('a', 'llama-3.3-70b-instruct', { alive: true, latency: 400 });

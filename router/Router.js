@@ -62,7 +62,7 @@ export class Router {
   }
 
   /** Пробует модели по рангу, при ошибке/таймауте помечает мёртвой и переходит к следующей (авто-fallback) */
-  async execute({ task, messages, timeoutMs = DEFAULT_TIMEOUT_MS, tools, toolChoice, stream, onToken }) {
+  async execute({ task, messages, timeoutMs = DEFAULT_TIMEOUT_MS, tools, toolChoice, responseFormat, maxTokens, stream, onToken }) {
     const candidates = this.rank(task);
     if (!candidates.length) {
       throw new Error('Нет доступных моделей — запусти AI.init() для health-check или проверь .env');
@@ -81,6 +81,8 @@ export class Router {
           signal: controller.signal,
           tools,
           toolChoice,
+          responseFormat,
+          maxTokens,
           stream,
           onToken,
         });

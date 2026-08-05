@@ -32,6 +32,10 @@ export class BaseProvider {
    * (/chat/completions) — большинство провайдеров ядра именно такие.
    * Cloudflare (свой формат запроса/ответа) и GitHub (заглушка) её не используют.
    * options.tools/toolChoice пробрасываются как есть (формат OpenAI tools API).
+   * options.responseFormat пробрасывается как response_format как есть
+   * (например { type: 'json_object' }) — не все провайдеры/модели его
+   * реально поддерживают, ядро это не проверяет, невалидное значение
+   * вернётся как обычная HTTP-ошибка от провайдера.
    */
   async _openAIChat({ baseUrl, apiKey, modelId, messages, options = {}, extraHeaders = {} }) {
     const body = {
@@ -42,6 +46,7 @@ export class BaseProvider {
     };
     if (options.tools) body.tools = options.tools;
     if (options.toolChoice) body.tool_choice = options.toolChoice;
+    if (options.responseFormat) body.response_format = options.responseFormat;
 
     const res = await fetch(`${baseUrl}/chat/completions`, {
       method: 'POST',
