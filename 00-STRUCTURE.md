@@ -60,13 +60,20 @@ ai-kernel/
 │   ├── groq.js                   # Groq (OpenAI-совместимый, быстрый)
 │   ├── openrouter.js             # OpenRouter (агрегатор сотен моделей)
 │   ├── cloudflare.js             # Cloudflare Workers AI (edge-инференс)
+│   ├── cerebras.js               # Cerebras (wafer-scale, очень быстрый)
+│   ├── sambanova.js              # SambaNova Cloud
+│   ├── deepinfra.js              # DeepInfra (выключен, баланс $0 — см. PROVIDERS_DISABLED)
+│   ├── hyperbolic.js             # Hyperbolic (выключен, баланс $0 — см. PROVIDERS_DISABLED)
+│   ├── gemini.js                 # Google Gemini (через OpenAI-совместимый слой)
+│   ├── huggingface.js            # HuggingFace Inference Providers router
 │   └── github.js                 # GitHub Models (ЗАКРЫТ, заглушка-пример)
 │
 ├── 📋 Реестр моделей (registry/)
-│   └── ModelRegistry.js          # хранилище стейта: жива ли модель, задержка
+│   └── ModelRegistry.js          # стейт: жива/мертва/остывает (cooldown), задержка
 │
 ├── 🧭 Маршрутизация (router/)
-│   └── Router.js                 # выбор модели под задачу + авто-fallback
+│   ├── Router.js                 # ранжирование под задачу + авто-fallback
+│   └── modelTiers.js             # таблица "силы" модели по семейству (tier 1-3)
 │
 ├── 💪 Диагностика (benchmark/)
 │   └── HealthChecker.js          # пингует модели, записывает результаты
@@ -87,19 +94,25 @@ ai-kernel/
 
 ---
 
-## 🎯 Что работает сейчас (MVP)
+## 🎯 Что работает сейчас
 
-✅ **Три провайдера:**
-- Groq (очень быстрый инференс)
-- OpenRouter (сотни моделей)
-- Cloudflare Workers AI (edge)
+Проект вырос за пределы исходного MVP — актуальная история изменений в
+[CHANGELOG.md](CHANGELOG.md).
 
-✅ **Все основные фичи:**
+✅ **9 провайдеров в коде, 6 активны и бесплатны из коробки:**
+- Groq, OpenRouter, Cloudflare Workers AI, Cerebras, SambaNova, HuggingFace
+- Gemini активен, но с ограниченной дневной квотой на free tier
+- DeepInfra и Hyperbolic выключены через `PROVIDERS_DISABLED` (баланс $0)
+
+✅ **Все основные фичи MVP плюс:**
 - Получение списка моделей автоматически
 - Health-check: пинг всех моделей при старте
-- Умный роутинг: выбор модели под задачу (code/roleplay/analysis)
-- Авто-fallback: если первая модель не ответила, пробует вторую
-- История сообщений по sessionId (памятью)
+- Роутинг по tier-таблице реальной "силы" модели (`router/modelTiers.js`),
+  не по угадыванию ключевых слов
+- Авто-fallback + автоматическое "остывание": мёртвая модель (квота/ошибка)
+  сама возвращается в кандидаты после кулдауна, без перезапуска процесса
+- Персистентная история сообщений по sessionId (`memory-store.json`,
+  переживает рестарт процесса)
 - Единый интерфейс: `AI.generate()`, `AI.code()`, `AI.roleplay()`, `AI.analyze()`
 - Красивое логирование в консоль
 - Сохранение отчёта health-check в JSON
