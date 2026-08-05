@@ -15,6 +15,7 @@
     "health": "node --env-file=.env -e \"import('./kernel.js').then(({ AI }) => AI.init())\"",
     "doctor": "node scripts/checkEnv.js",
     "test": "node --test",
-    "hooks:install": "node scripts/installHooks.js"
+    "hooks:install": "node scripts/installHooks.js",
+    "backup": "node scripts/backup.js"
   }
 }
