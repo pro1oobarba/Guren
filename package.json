@@ -1,0 +1,14 @@
+{
+  "name": "ai-kernel",
+  "version": "0.1.0",
+  "description": "Универсальное AI-ядро: маршрутизация и авто-fallback между Groq, OpenRouter и Cloudflare Workers AI",
+  "type": "module",
+  "engines": {
+    "node": ">=22"
+  },
+  "main": "index.js",
+  "scripts": {
+    "start": "node --env-file=.env index.js",
+    "health": "node --env-file=.env -e \"import('./kernel.js').then(({ AI }) => AI.init())\""
+  }
+}
