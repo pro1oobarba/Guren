@@ -32,6 +32,7 @@ import { log } from './utils/logger.js';
  * @property {string | object} [toolChoice] см. OpenAI tool_choice
  * @property {object} [responseFormat] формат OpenAI response_format (например { type: 'json_object' }), пробрасывается как есть — поддержку со стороны конкретной модели/провайдера ядро не проверяет
  * @property {number} [maxTokens] лимит токенов ответа, дефолт — 1024 в BaseProvider._openAIChat. У reasoning-моделей (например gemma-*-thinking-варианты) рассуждение само по себе занимает часть этого бюджета — если модель обрывается до содержательного ответа, увеличь maxTokens, а не только responseFormat
+ * @property {number} [temperature] дефолт — 0.7 в BaseProvider._openAIChat. Понижай, когда важнее точное следование инструкции, чем разнообразие текста (например структурированный ответ по согласованным с пользователем данным)
  * @property {boolean} [stream] потоковый ответ (SSE), см. providers/BaseProvider.js _openAIChatStream. Не собирает tool_calls — для tools без стрима
  * @property {(delta: string) => void} [onToken] вызывается на каждый кусок текста при stream: true; если поток оборвался ПОСЛЕ первого токена, generate() бросает ошибку с полем partialContent вместо тихого fallback на другую модель
  * @typedef {'alive' | 'cooldown' | 'retryable'} ModelState
@@ -142,7 +143,7 @@ export class AIKernel {
    * @param {GenerateArgs} args
    * @returns {Promise<GenerateResult>}
    */
-  async generate({ task, prompt, sessionId, systemPrompt, timeoutMs, tools, toolChoice, responseFormat, maxTokens, stream, onToken }) {
+  async generate({ task, prompt, sessionId, systemPrompt, timeoutMs, tools, toolChoice, responseFormat, maxTokens, temperature, stream, onToken }) {
     if (!prompt) throw new Error('generate(): параметр prompt обязателен');
 
     // task не передан явно — эвристика по тексту промпта вместо жёсткого
@@ -162,6 +163,10 @@ export class AIKernel {
         ...(toolChoice && { toolChoice }),
         ...(responseFormat && { responseFormat }),
         ...(maxTokens && { maxTokens }),
+        // Явная проверка на undefined, а не truthy: temperature: 0 —
+        // валидное и осмысленное значение (максимально детерминированный
+        // ответ), которое обычная проверка молча бы отбросила.
+        ...(temperature !== undefined && { temperature }),
         ...(stream && { stream }),
         ...(onToken && { onToken }),
       });

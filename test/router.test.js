@@ -140,6 +140,27 @@ test('execute() пробрасывает maxTokens в provider.chat как ес�
   assert.equal(receivedOptions.maxTokens, 2048, 'maxTokens должен дойти до provider.chat как есть');
 });
 
+test('execute() пробрасывает temperature, включая 0 (не отбрасывается как falsy)', async () => {
+  const registry = new ModelRegistry();
+  registry.upsert('p', 'm', { alive: true, latency: 50 });
+
+  let receivedOptions;
+  const providers = {
+    p: {
+      enabled: true,
+      chat: async (_modelId, _messages, options) => {
+        receivedOptions = options;
+        return { content: 'ok', toolCalls: null };
+      },
+    },
+  };
+
+  const router = new Router({ providers, registry });
+  await router.execute({ task: 'general', messages: [], temperature: 0 });
+
+  assert.equal(receivedOptions.temperature, 0, 'temperature: 0 — валидное значение и не должно теряться');
+});
+
 test('с инъекцией random=() => 0 джиттер не ломает стабильный порядок (регресс на детерминированность теста)', () => {
   const registry = new ModelRegistry();
   registry.upsert('a', 'llama-3.3-70b-instruct', { alive: true, latency: 400 });
