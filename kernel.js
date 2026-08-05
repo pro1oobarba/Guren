@@ -52,6 +52,13 @@ import { log } from './utils/logger.js';
  * и не знают, какой именно провайдер и модель ответили.
  */
 export class AIKernel {
+  /**
+   * @param {Record<string, string | undefined>} [env] источник ключей.
+   * По умолчанию process.env, но можно передать свой объект — например
+   * чтобы поднять отдельный экземпляр под ключ конкретного пользователя
+   * (BYOK), не подмешивая ему общие ключи сервера. Достаточно указать
+   * только нужные переменные: провайдеры без ключа сами станут disabled.
+   */
   constructor(env = process.env) {
     this.providers = {
       groq: new GroqProvider({ apiKey: env.GROQ_API_KEY }),
