@@ -13,19 +13,22 @@ import { HuggingFaceProvider } from './providers/huggingface.js';
 import { ModelRegistry } from './registry/ModelRegistry.js';
 import { Router } from './router/Router.js';
 import { getModelTier } from './router/modelTiers.js';
+import { classifyTask } from './router/classifyTask.js';
 import { HealthChecker } from './benchmark/HealthChecker.js';
 import { MemoryManager } from './memory/MemoryManager.js';
 import { log } from './utils/logger.js';
 
 /**
  * @typedef {'general' | 'code' | 'roleplay' | 'analysis'} TaskType
- * @typedef {{ text: string, provider: string, modelId: string }} GenerateResult
+ * @typedef {{ text: string, toolCalls: object[] | null, provider: string, modelId: string }} GenerateResult
  * @typedef {object} GenerateArgs
- * @property {TaskType} [task] влияет только на выбор модели, не на формат ответа
+ * @property {TaskType} [task] влияет только на выбор модели, не на формат ответа; не передан — определяется эвристикой по prompt (см. router/classifyTask.js)
  * @property {string} prompt обязателен
  * @property {string} [sessionId] история сообщений накапливается по этому ключу; без него — разовый запрос без памяти
  * @property {string} [systemPrompt]
  * @property {number} [timeoutMs] дефолт — DEFAULT_TIMEOUT_MS в router/Router.js (45с)
+ * @property {object[]} [tools] формат OpenAI tools API, пробрасывается как есть — поддержку со стороны конкретной модели/провайдера ядро не проверяет
+ * @property {string | object} [toolChoice] см. OpenAI tool_choice
  * @typedef {'alive' | 'cooldown' | 'retryable'} ModelState
  * @typedef {object} ModelStatus
  * @property {string} provider
@@ -133,13 +136,28 @@ export class AIKernel {
    * @param {GenerateArgs} args
    * @returns {Promise<GenerateResult>}
    */
-  async generate({ task = 'general', prompt, sessionId, systemPrompt, timeoutMs }) {
+  async generate({ task, prompt, sessionId, systemPrompt, timeoutMs, tools, toolChoice }) {
     if (!prompt) throw new Error('generate(): параметр prompt обязателен');
 
+    // task не передан явно — эвристика по тексту промпта вместо жёсткого
+    // 'general' по умолчанию (см. router/classifyTask.js). Явный task,
+    // включая явное 'general', всегда имеет приоритет над эвристикой.
+    const resolvedTask = task ?? classifyTask(prompt);
+
     const messages = this.memory.buildMessages(sessionId, { systemPrompt, prompt });
-    const result = await this.router.execute({ task, messages, ...(timeoutMs && { timeoutMs }) });
+    const result = await this.router.execute({
+      task: resolvedTask,
+      messages,
+      ...(timeoutMs && { timeoutMs }),
+      ...(tools && { tools }),
+      ...(toolChoice && { toolChoice }),
+    });
 
     this.memory.append(sessionId, 'user', prompt);
+    // Ответ на вызов инструмента может не содержать текста вообще (только
+    // toolCalls) — писать в память пустую строку бессмысленно, но и терять
+    // сам факт хода ассистента в истории не хочется. Пишем как есть: пустая
+    // строка допустима, вызывающий код видит toolCalls в возвращаемом result.
     this.memory.append(sessionId, 'assistant', result.text);
 
     return result;

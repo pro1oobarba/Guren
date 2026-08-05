@@ -35,7 +35,7 @@ test('execute() делает fallback на следующую модель пр�
 
   const providers = {
     bad: { enabled: true, chat: async () => { throw new Error('boom'); } },
-    good: { enabled: true, chat: async () => 'ok' },
+    good: { enabled: true, chat: async () => ({ content: 'ok', toolCalls: null }) },
   };
 
   // random: () => 0 убирает джиттер — иначе при равном tier порядок между
@@ -68,6 +68,32 @@ test('джиттер внутри одного tier распределяет, к
   }
 
   assert.equal(firstPicks.size, 2, 'за 50 прогонов оба кандидата должны хоть раз оказаться первыми');
+});
+
+test('execute() пробрасывает tools/toolChoice в provider.chat и возвращает toolCalls', async () => {
+  const registry = new ModelRegistry();
+  registry.upsert('p', 'm', { alive: true, latency: 50 });
+
+  const tools = [{ type: 'function', function: { name: 'get_weather' } }];
+  const toolChoice = 'auto';
+  let receivedOptions;
+
+  const providers = {
+    p: {
+      enabled: true,
+      chat: async (_modelId, _messages, options) => {
+        receivedOptions = options;
+        return { content: '', toolCalls: [{ id: 'call_1', function: { name: 'get_weather' } }] };
+      },
+    },
+  };
+
+  const router = new Router({ providers, registry });
+  const result = await router.execute({ task: 'general', messages: [], tools, toolChoice });
+
+  assert.equal(receivedOptions.tools, tools, 'tools должны дойти до provider.chat как есть');
+  assert.equal(receivedOptions.toolChoice, toolChoice);
+  assert.deepEqual(result.toolCalls, [{ id: 'call_1', function: { name: 'get_weather' } }]);
 });
 
 test('с инъекцией random=() => 0 джиттер не ломает стабильный порядок (регресс на детерминированность теста)', () => {

@@ -19,9 +19,47 @@ export class BaseProvider {
     throw new Error(`${this.name}: listModels() не реализован`);
   }
 
-  /** Отправляет сообщения модели и возвращает текст ответа (строка) */
+  /**
+   * Отправляет сообщения модели.
+   * @returns {Promise<{ content: string, toolCalls: object[] | null }>}
+   */
   async chat(_modelId, _messages, _options = {}) {
     throw new Error(`${this.name}: chat() не реализован`);
+  }
+
+  /**
+   * Общая реализация для всех OpenAI-совместимых эндпоинтов
+   * (/chat/completions) — большинство провайдеров ядра именно такие.
+   * Cloudflare (свой формат запроса/ответа) и GitHub (заглушка) её не используют.
+   * options.tools/toolChoice пробрасываются как есть (формат OpenAI tools API).
+   */
+  async _openAIChat({ baseUrl, apiKey, modelId, messages, options = {}, extraHeaders = {} }) {
+    const body = {
+      model: modelId,
+      messages,
+      max_tokens: options.maxTokens ?? 1024,
+      temperature: options.temperature ?? 0.7,
+    };
+    if (options.tools) body.tools = options.tools;
+    if (options.toolChoice) body.tool_choice = options.toolChoice;
+
+    const res = await fetch(`${baseUrl}/chat/completions`, {
+      method: 'POST',
+      headers: {
+        Authorization: `Bearer ${apiKey}`,
+        'Content-Type': 'application/json',
+        ...extraHeaders,
+      },
+      body: JSON.stringify(body),
+      signal: options.signal,
+    });
+    if (!res.ok) {
+      const text = await res.text().catch(() => '');
+      throw new Error(`${this.name} HTTP ${res.status}: ${text.slice(0, 200)}`);
+    }
+    const data = await res.json();
+    const message = data.choices?.[0]?.message ?? {};
+    return { content: message.content ?? '', toolCalls: message.tool_calls ?? null };
   }
 
   /**

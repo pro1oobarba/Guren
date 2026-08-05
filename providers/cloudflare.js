@@ -61,6 +61,8 @@ export class CloudflareProvider extends BaseProvider {
     }
     const data = await res.json();
     if (!data.success) throw new Error(`Cloudflare error: ${JSON.stringify(data.errors ?? [])}`);
-    return data.result?.response ?? '';
+    // Workers AI не поддерживает tools в этом формате запроса — toolCalls
+    // всегда null, но контракт возврата тот же, что у остальных провайдеров.
+    return { content: data.result?.response ?? '', toolCalls: null };
   }
 }

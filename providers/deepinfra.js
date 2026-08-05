@@ -31,25 +31,6 @@ export class DeepInfraProvider extends BaseProvider {
 
   async chat(modelId, messages, options = {}) {
     if (!this.enabled) throw new Error('DeepInfra выключен — нет DEEPINFRA_API_KEY в .env');
-    const res = await fetch(`${this.baseUrl}/chat/completions`, {
-      method: 'POST',
-      headers: {
-        Authorization: `Bearer ${this.apiKey}`,
-        'Content-Type': 'application/json',
-      },
-      body: JSON.stringify({
-        model: modelId,
-        messages,
-        max_tokens: options.maxTokens ?? 1024,
-        temperature: options.temperature ?? 0.7,
-      }),
-      signal: options.signal,
-    });
-    if (!res.ok) {
-      const text = await res.text().catch(() => '');
-      throw new Error(`DeepInfra HTTP ${res.status}: ${text.slice(0, 200)}`);
-    }
-    const data = await res.json();
-    return data.choices?.[0]?.message?.content ?? '';
+    return this._openAIChat({ baseUrl: this.baseUrl, apiKey: this.apiKey, modelId, messages, options });
   }
 }

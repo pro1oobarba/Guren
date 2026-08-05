@@ -62,7 +62,7 @@ export class Router {
   }
 
   /** Пробует модели по рангу, при ошибке/таймауте помечает мёртвой и переходит к следующей (авто-fallback) */
-  async execute({ task, messages, timeoutMs = DEFAULT_TIMEOUT_MS }) {
+  async execute({ task, messages, timeoutMs = DEFAULT_TIMEOUT_MS, tools, toolChoice }) {
     const candidates = this.rank(task);
     if (!candidates.length) {
       throw new Error('Нет доступных моделей — запусти AI.init() для health-check или проверь .env');
@@ -77,8 +77,13 @@ export class Router {
       const timer = setTimeout(() => controller.abort(), timeoutMs);
       try {
         log.info(`→ пробуем ${candidate.provider}/${candidate.modelId}`);
-        const text = await provider.chat(candidate.modelId, messages, { signal: controller.signal });
-        return { text, provider: candidate.provider, modelId: candidate.modelId };
+        const result = await provider.chat(candidate.modelId, messages, { signal: controller.signal, tools, toolChoice });
+        return {
+          text: result.content,
+          toolCalls: result.toolCalls ?? null,
+          provider: candidate.provider,
+          modelId: candidate.modelId,
+        };
       } catch (err) {
         const message = err.name === 'AbortError' ? `таймаут ${timeoutMs}мс` : err.message;
         lastError = new Error(message);
