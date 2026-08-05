@@ -16,18 +16,29 @@ const TASK_KEYWORDS = {
 // таймаута не имел вообще: зависший провайдер вешал AI.generate() навсегда.
 const DEFAULT_TIMEOUT_MS = 45_000;
 
+// Разброс джиттера сопоставим по величине с latencyScore/aliveBonus —
+// не перекрывает разницу между tier (×1000) или strength/keyword (×100/10),
+// но у моделей одного tier с похожей задержкой порядок в ранге перестаёт
+// быть жёстко детерминированным. Без этого один и тот же топ-кандидат
+// получал бы весь трафик, съедая свою дневную квоту в одиночку, пока
+// другая модель того же tier простаивала бы.
+const JITTER_MAX = 5;
+
 export class Router {
-  constructor({ providers, registry }) {
+  constructor({ providers, registry, random = Math.random }) {
     this.providers = providers;
     this.registry = registry;
+    this.random = random; // инъекция для детерминированных тестов
   }
 
   /**
    * Ранжирует живые модели под задачу. Главный сигнал — tier (реальная
    * "весовая категория" модели, см. modelTiers.js), внутри одного tier
-   * решают: совпадение по strengths/ключевым словам под задачу, затем
-   * задержка. Раньше latency и keyword-совпадение перевешивали силу модели —
-   * 8B-модель с удачным словом в имени могла обойти 70B. Теперь нет.
+   * решают: совпадение по strengths/ключевым словам под задачу, задержка
+   * и небольшой случайный джиттер — чтобы нагрузка внутри tier не всегда
+   * шла в одного и того же кандидата. Раньше latency и keyword-совпадение
+   * перевешивали силу модели — 8B-модель с удачным словом в имени могла
+   * обойти 70B. Теперь нет: tier остаётся главным сигналом.
    */
   rank(task) {
     const keywords = TASK_KEYWORDS[task] ?? TASK_KEYWORDS.general;
@@ -43,7 +54,8 @@ export class Router {
       const keywordScore = keywords.reduce((sum, kw) => (idLower.includes(kw) ? sum + 1 : sum), 0);
       const latencyScore = entry.latency ? 1000 / entry.latency : 0;
       const aliveBonus = entry.alive ? 5 : 0; // при равном tier подтверждённо живая модель приоритетнее остывшей
-      const score = tier * 1000 + strengthBonus * 100 + keywordScore * 10 + aliveBonus + latencyScore;
+      const jitter = this.random() * JITTER_MAX;
+      const score = tier * 1000 + strengthBonus * 100 + keywordScore * 10 + aliveBonus + latencyScore + jitter;
       return { ...entry, tier, score };
     });
     return scored.sort((a, b) => b.score - a.score);

@@ -12,9 +12,30 @@ import { GeminiProvider } from './providers/gemini.js';
 import { HuggingFaceProvider } from './providers/huggingface.js';
 import { ModelRegistry } from './registry/ModelRegistry.js';
 import { Router } from './router/Router.js';
+import { getModelTier } from './router/modelTiers.js';
 import { HealthChecker } from './benchmark/HealthChecker.js';
 import { MemoryManager } from './memory/MemoryManager.js';
 import { log } from './utils/logger.js';
+
+/**
+ * @typedef {'general' | 'code' | 'roleplay' | 'analysis'} TaskType
+ * @typedef {{ text: string, provider: string, modelId: string }} GenerateResult
+ * @typedef {object} GenerateArgs
+ * @property {TaskType} [task] влияет только на выбор модели, не на формат ответа
+ * @property {string} prompt обязателен
+ * @property {string} [sessionId] история сообщений накапливается по этому ключу; без него — разовый запрос без памяти
+ * @property {string} [systemPrompt]
+ * @property {number} [timeoutMs] дефолт — DEFAULT_TIMEOUT_MS в router/Router.js (45с)
+ * @typedef {'alive' | 'cooldown' | 'retryable'} ModelState
+ * @typedef {object} ModelStatus
+ * @property {string} provider
+ * @property {string} modelId
+ * @property {1 | 2 | 3} tier см. router/modelTiers.js
+ * @property {ModelState} state
+ * @property {number | null} latency мс, последний известный
+ * @property {string | null} error последняя ошибка, если есть
+ * @property {number} cooldownRemainingMs 0, если не в кулдауне
+ */
 
 /**
  * AIKernel — единая точка входа для внешних проектов (боты, DM-ассистент,
@@ -84,7 +105,34 @@ export class AIKernel {
     log.info(`Отчёт диагностики сохранён: ${path}`);
   }
 
-  /** Базовый генератор. task влияет только на выбор модели, не на формат ответа. */
+  /**
+   * Программный снимок реестра моделей — для встраивания в свой
+   * бот/дашборд без парсинга консольных логов HealthChecker.
+   * @returns {ModelStatus[]}
+   */
+  status() {
+    const now = Date.now();
+    return this.registry.all().map((entry) => {
+      const { tier } = getModelTier(entry.modelId.toLowerCase());
+      const inCooldown = entry.alive === false && entry.retryAfter && entry.retryAfter > now;
+      const state = entry.alive ? 'alive' : inCooldown ? 'cooldown' : 'retryable';
+      return {
+        provider: entry.provider,
+        modelId: entry.modelId,
+        tier,
+        state,
+        latency: entry.latency ?? null,
+        error: entry.error ?? null,
+        cooldownRemainingMs: inCooldown ? entry.retryAfter - now : 0,
+      };
+    });
+  }
+
+  /**
+   * Базовый генератор.
+   * @param {GenerateArgs} args
+   * @returns {Promise<GenerateResult>}
+   */
   async generate({ task = 'general', prompt, sessionId, systemPrompt, timeoutMs }) {
     if (!prompt) throw new Error('generate(): параметр prompt обязателен');
 
@@ -97,14 +145,17 @@ export class AIKernel {
     return result;
   }
 
+  /** Сахарная обёртка над generate() с task: 'code'. @param {Omit<GenerateArgs, 'task'>} args @returns {Promise<GenerateResult>} */
   code(args) {
     return this.generate({ ...args, task: 'code' });
   }
 
+  /** Сахарная обёртка над generate() с task: 'roleplay'. @param {Omit<GenerateArgs, 'task'>} args @returns {Promise<GenerateResult>} */
   roleplay(args) {
     return this.generate({ ...args, task: 'roleplay' });
   }
 
+  /** Сахарная обёртка над generate() с task: 'analysis'. @param {Omit<GenerateArgs, 'task'>} args @returns {Promise<GenerateResult>} */
   analyze(args) {
     return this.generate({ ...args, task: 'analysis' });
   }

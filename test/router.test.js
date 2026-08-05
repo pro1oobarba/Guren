@@ -31,14 +31,17 @@ test('rank() включает остывшие мёртвые модели (elig
 test('execute() делает fallback на следующую модель при ошибке первой', async () => {
   const registry = new ModelRegistry();
   registry.upsert('bad', 'm1', { alive: true, latency: 50 });
-  registry.upsert('good', 'm2', { alive: true, latency: 50 });
+  registry.upsert('good', 'm2', { alive: true, latency: 100 });
 
   const providers = {
     bad: { enabled: true, chat: async () => { throw new Error('boom'); } },
     good: { enabled: true, chat: async () => 'ok' },
   };
 
-  const router = new Router({ providers, registry });
+  // random: () => 0 убирает джиттер — иначе при равном tier порядок между
+  // m1/m2 случаен и тест иногда пробовал бы только "good", ни разу не
+  // тронув "bad" (флаки-тест, а не баг в коде).
+  const router = new Router({ providers, registry, random: () => 0 });
   const result = await router.execute({ task: 'general', messages: [] });
 
   assert.equal(result.text, 'ok');
@@ -49,4 +52,31 @@ test('execute() кидает понятную ошибку, если канди�
   const registry = new ModelRegistry();
   const router = new Router({ providers: {}, registry });
   await assert.rejects(() => router.execute({ task: 'general', messages: [] }), /Нет доступных моделей/);
+});
+
+test('джиттер внутри одного tier распределяет, кто оказывается первым', () => {
+  const registry = new ModelRegistry();
+  // Одинаковый tier (оба 70b) и одинаковая latency — единственное, что
+  // может развести порядок между ними, это случайный джиттер.
+  registry.upsert('a', 'llama-3.3-70b-instruct', { alive: true, latency: 500 });
+  registry.upsert('b', 'llama-3.1-70b-instruct', { alive: true, latency: 500 });
+
+  const router = new Router({ providers: {}, registry });
+  const firstPicks = new Set();
+  for (let i = 0; i < 50; i++) {
+    firstPicks.add(router.rank('general')[0].modelId);
+  }
+
+  assert.equal(firstPicks.size, 2, 'за 50 прогонов оба кандидата должны хоть раз оказаться первыми');
+});
+
+test('с инъекцией random=() => 0 джиттер не ломает стабильный порядок (регресс на детерминированность теста)', () => {
+  const registry = new ModelRegistry();
+  registry.upsert('a', 'llama-3.3-70b-instruct', { alive: true, latency: 400 });
+  registry.upsert('b', 'llama-3.1-70b-instruct', { alive: true, latency: 500 });
+
+  const router = new Router({ providers: {}, registry, random: () => 0 });
+  const ranked = router.rank('general');
+
+  assert.equal(ranked[0].modelId, 'llama-3.3-70b-instruct', 'без джиттера должна побеждать модель с меньшей задержкой');
 });
