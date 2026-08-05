@@ -43,13 +43,14 @@ export class OpenRouterProvider extends BaseProvider {
 
   async chat(modelId, messages, options = {}) {
     if (!this.enabled) throw new Error('OpenRouter выключен — нет OPENROUTER_API_KEY в .env');
-    return this._openAIChat({
+    const args = {
       baseUrl: this.baseUrl,
       apiKey: this.apiKey,
       modelId,
       messages,
       options,
       extraHeaders: { 'HTTP-Referer': this.siteUrl, 'X-Title': this.appName },
-    });
+    };
+    return options.stream ? this._openAIChatStream(args) : this._openAIChat(args);
   }
 }

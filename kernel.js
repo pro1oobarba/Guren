@@ -29,6 +29,8 @@ import { log } from './utils/logger.js';
  * @property {number} [timeoutMs] дефолт — DEFAULT_TIMEOUT_MS в router/Router.js (45с)
  * @property {object[]} [tools] формат OpenAI tools API, пробрасывается как есть — поддержку со стороны конкретной модели/провайдера ядро не проверяет
  * @property {string | object} [toolChoice] см. OpenAI tool_choice
+ * @property {boolean} [stream] потоковый ответ (SSE), см. providers/BaseProvider.js _openAIChatStream. Не собирает tool_calls — для tools без стрима
+ * @property {(delta: string) => void} [onToken] вызывается на каждый кусок текста при stream: true; если поток оборвался ПОСЛЕ первого токена, generate() бросает ошибку с полем partialContent вместо тихого fallback на другую модель
  * @typedef {'alive' | 'cooldown' | 'retryable'} ModelState
  * @typedef {object} ModelStatus
  * @property {string} provider
@@ -136,7 +138,7 @@ export class AIKernel {
    * @param {GenerateArgs} args
    * @returns {Promise<GenerateResult>}
    */
-  async generate({ task, prompt, sessionId, systemPrompt, timeoutMs, tools, toolChoice }) {
+  async generate({ task, prompt, sessionId, systemPrompt, timeoutMs, tools, toolChoice, stream, onToken }) {
     if (!prompt) throw new Error('generate(): параметр prompt обязателен');
 
     // task не передан явно — эвристика по тексту промпта вместо жёсткого
@@ -145,13 +147,27 @@ export class AIKernel {
     const resolvedTask = task ?? classifyTask(prompt);
 
     const messages = this.memory.buildMessages(sessionId, { systemPrompt, prompt });
-    const result = await this.router.execute({
-      task: resolvedTask,
-      messages,
-      ...(timeoutMs && { timeoutMs }),
-      ...(tools && { tools }),
-      ...(toolChoice && { toolChoice }),
-    });
+
+    let result;
+    try {
+      result = await this.router.execute({
+        task: resolvedTask,
+        messages,
+        ...(timeoutMs && { timeoutMs }),
+        ...(tools && { tools }),
+        ...(toolChoice && { toolChoice }),
+        ...(stream && { stream }),
+        ...(onToken && { onToken }),
+      });
+    } catch (err) {
+      // Стрим оборвался, но вызывающий код уже что-то получил через onToken —
+      // сохраняем частичный ответ в память, а не теряем ход разговора молча.
+      if (err.partialContent !== undefined) {
+        this.memory.append(sessionId, 'user', prompt);
+        this.memory.append(sessionId, 'assistant', err.partialContent);
+      }
+      throw err;
+    }
 
     this.memory.append(sessionId, 'user', prompt);
     // Ответ на вызов инструмента может не содержать текста вообще (только

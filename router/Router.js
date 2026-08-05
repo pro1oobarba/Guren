@@ -62,7 +62,7 @@ export class Router {
   }
 
   /** Пробует модели по рангу, при ошибке/таймауте помечает мёртвой и переходит к следующей (авто-fallback) */
-  async execute({ task, messages, timeoutMs = DEFAULT_TIMEOUT_MS, tools, toolChoice }) {
+  async execute({ task, messages, timeoutMs = DEFAULT_TIMEOUT_MS, tools, toolChoice, stream, onToken }) {
     const candidates = this.rank(task);
     if (!candidates.length) {
       throw new Error('Нет доступных моделей — запусти AI.init() для health-check или проверь .env');
@@ -77,7 +77,13 @@ export class Router {
       const timer = setTimeout(() => controller.abort(), timeoutMs);
       try {
         log.info(`→ пробуем ${candidate.provider}/${candidate.modelId}`);
-        const result = await provider.chat(candidate.modelId, messages, { signal: controller.signal, tools, toolChoice });
+        const result = await provider.chat(candidate.modelId, messages, {
+          signal: controller.signal,
+          tools,
+          toolChoice,
+          stream,
+          onToken,
+        });
         return {
           text: result.content,
           toolCalls: result.toolCalls ?? null,
@@ -85,6 +91,20 @@ export class Router {
           modelId: candidate.modelId,
         };
       } catch (err) {
+        // Стрим оборвался ПОСЛЕ того, как часть текста уже ушла вызывающему
+        // через onToken — пользователь уже что-то увидел, молча пробовать
+        // другую модель означало бы либо задвоить, либо незаметно оборвать
+        // ответ на середине. Отдаём ошибку с тем, что успело прийти, наверх,
+        // без fallback и без пометки модели мёртвой (частичный успех — не
+        // однозначный признак что модель нерабочая).
+        if (err.partialContent !== undefined) {
+          const partialErr = new Error(err.message);
+          partialErr.partialContent = err.partialContent;
+          partialErr.provider = candidate.provider;
+          partialErr.modelId = candidate.modelId;
+          throw partialErr;
+        }
+
         const message = err.name === 'AbortError' ? `таймаут ${timeoutMs}мс` : err.message;
         lastError = new Error(message);
         log.warn(`✗ ${candidate.provider}/${candidate.modelId} — ${message}, пробуем следующую модель`);

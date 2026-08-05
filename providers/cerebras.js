@@ -31,6 +31,7 @@ export class CerebrasProvider extends BaseProvider {
 
   async chat(modelId, messages, options = {}) {
     if (!this.enabled) throw new Error('Cerebras выключен — нет CEREBRAS_API_KEY в .env');
-    return this._openAIChat({ baseUrl: this.baseUrl, apiKey: this.apiKey, modelId, messages, options });
+    const args = { baseUrl: this.baseUrl, apiKey: this.apiKey, modelId, messages, options };
+    return options.stream ? this._openAIChatStream(args) : this._openAIChat(args);
   }
 }

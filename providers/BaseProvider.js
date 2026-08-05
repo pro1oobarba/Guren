@@ -63,6 +63,96 @@ export class BaseProvider {
   }
 
   /**
+   * Стриминговая версия _openAIChat: разбирает SSE (`data: {...}\n\n`,
+   * `data: [DONE]`) вручную — без зависимостей, формат простой. На каждый
+   * кусок текста дёргает options.onToken(delta), в конце отдаёт полный
+   * склеенный текст (для памяти/лога) — так вызывающему коду не нужно
+   * самому склеивать чанки, если стриминг нужен только для UX "печатает...".
+   *
+   * Tool-calling во время стриминга не собирается (deltas для tool_calls
+   * приходят по кусочкам аргументов и их сборка — отдельная нетривиальная
+   * задача) — если нужны и tools, и стрим одновременно, для этого запроса
+   * используй обычный _openAIChat().
+   *
+   * Если поток оборвался ПОСЛЕ того, как хотя бы один токен уже ушёл
+   * вызывающему через onToken — это не тихая ошибка для fallback на
+   * следующую модель (пользователь уже увидел частичный ответ, молча
+   * подменять модель было бы странно). Бросаем ошибку с полем
+   * partialContent, Router.execute() на это смотрит и не делает fallback.
+   */
+  async _openAIChatStream({ baseUrl, apiKey, modelId, messages, options = {}, extraHeaders = {} }) {
+    const body = {
+      model: modelId,
+      messages,
+      max_tokens: options.maxTokens ?? 1024,
+      temperature: options.temperature ?? 0.7,
+      stream: true,
+    };
+
+    const res = await fetch(`${baseUrl}/chat/completions`, {
+      method: 'POST',
+      headers: {
+        Authorization: `Bearer ${apiKey}`,
+        'Content-Type': 'application/json',
+        ...extraHeaders,
+      },
+      body: JSON.stringify(body),
+      signal: options.signal,
+    });
+    if (!res.ok) {
+      const text = await res.text().catch(() => '');
+      throw new Error(`${this.name} HTTP ${res.status}: ${text.slice(0, 200)}`);
+    }
+    if (!res.body) throw new Error(`${this.name}: сервер не вернул потоковое тело ответа`);
+
+    const reader = res.body.getReader();
+    const decoder = new TextDecoder();
+    let buffer = '';
+    let content = '';
+
+    try {
+      while (true) {
+        const { done, value } = await reader.read();
+        if (done) break;
+        buffer += decoder.decode(value, { stream: true });
+
+        const lines = buffer.split('\n');
+        buffer = lines.pop() ?? ''; // неполная строка — ждём следующего чтения
+
+        for (const line of lines) {
+          const trimmed = line.trim();
+          if (!trimmed.startsWith('data:')) continue;
+          const payload = trimmed.slice(5).trim();
+          if (payload === '[DONE]' || payload === '') continue;
+
+          let chunk;
+          try {
+            chunk = JSON.parse(payload);
+          } catch {
+            continue; // битый/разорванный между чтениями JSON-кусок — пропускаем, не роняем весь стрим
+          }
+          const delta = chunk.choices?.[0]?.delta?.content;
+          if (delta) {
+            content += delta;
+            options.onToken?.(delta);
+          }
+        }
+      }
+    } catch (err) {
+      if (content) {
+        const wrapped = new Error(`${this.name}: обрыв потока после частичного ответа — ${err.message}`);
+        wrapped.partialContent = content;
+        throw wrapped;
+      }
+      throw err;
+    } finally {
+      reader.releaseLock();
+    }
+
+    return { content, toolCalls: null };
+  }
+
+  /**
    * Короткий health-check: шлёт "ping" и измеряет задержку.
    * Возвращает { alive, latency, error? }
    */
