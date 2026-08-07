@@ -1,6 +1,7 @@
 import fs from 'node:fs';
+import { statePath, writeState } from '../utils/stateDir.js';
 
-const DEFAULT_STORE_PATH = new URL('../memory-store.json', import.meta.url);
+const DEFAULT_STORE_PATH = statePath('memory-store.json');
 
 // Без ограничений история сессии растёт бесконечно: файл на диске
 // раздувается, а рано или поздно суммарная длина истории превысит context
@@ -49,7 +50,7 @@ export class MemoryManager {
 
   #save() {
     const obj = Object.fromEntries(this.sessions);
-    fs.writeFileSync(this.storePath, JSON.stringify(obj, null, 2), 'utf-8');
+    writeState(this.storePath, JSON.stringify(obj, null, 2));
   }
 
   get(sessionId) {

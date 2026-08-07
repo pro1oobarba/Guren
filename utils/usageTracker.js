@@ -1,6 +1,7 @@
 import fs from 'node:fs';
+import { statePath, writeState } from './stateDir.js';
 
-const DEFAULT_STORE_PATH = new URL('../usage.json', import.meta.url);
+const DEFAULT_STORE_PATH = statePath('usage.json');
 
 /**
  * UsageTracker — примерный расход по дням/провайдерам: сколько запросов
@@ -25,7 +26,7 @@ export class UsageTracker {
   }
 
   #save() {
-    fs.writeFileSync(this.storePath, JSON.stringify(this.data, null, 2), 'utf-8');
+    writeState(this.storePath, JSON.stringify(this.data, null, 2));
   }
 
   #today() {

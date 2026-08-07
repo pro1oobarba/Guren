@@ -117,9 +117,21 @@ export class AIKernel {
     return this.registry.toJSON();
   }
 
+  /**
+   * Отчёт диагностики — удобство для разработчика, а не часть работы ядра.
+   * Каталог запуска сплошь и рядом доступен только для чтения (serverless,
+   * контейнер, глобальная установка), и падать из-за невозможности записать
+   * справочный файл ядро не имеет права: диагностика уже проведена, её
+   * результат лежит в реестре в памяти.
+   */
   async saveReport(path = './health-report.json') {
-    await fs.writeFile(path, JSON.stringify(this.registry.toJSON(), null, 2), 'utf-8');
-    log.info(`Отчёт диагностики сохранён: ${path}`);
+    try {
+      await fs.writeFile(path, JSON.stringify(this.registry.toJSON(), null, 2), 'utf-8');
+      log.info(`Отчёт диагностики сохранён: ${path}`);
+    } catch (error) {
+      const reason = error instanceof Error ? error.message : String(error);
+      log.info(`Отчёт диагностики не сохранён (${reason}) — продолжаю без него.`);
+    }
   }
 
   /**
