@@ -92,6 +92,46 @@ test('sticky больше maxStoredMessages не ломается — sticky о�
   assert.equal(built.length, 4); // все 3 хранимых + новый prompt, без дублей
 });
 
+test('ephemeralSystem встаёт между историей и репликой игрока', (t) => {
+  const storePath = tmpPath('ephemeral-position');
+  t.after(() => fs.rmSync(storePath, { force: true }));
+
+  const mm = new MemoryManager({ storePath });
+  mm.append('s1', 'user', 'старый ход');
+  mm.append('s1', 'assistant', 'старый ответ');
+
+  const built = mm.buildMessages('s1', {
+    systemPrompt: 'персона мастера',
+    prompt: 'бью дракона',
+    ephemeralSystem: 'РАЗОВОЕ ПРАВИЛО',
+  });
+
+  // Позиция — весь смысл: в начале контекста (рядом с systemPrompt) разовое
+  // правило тонет на длинной сессии, а модель следует тем охотнее, чем оно свежее.
+  assert.deepEqual(
+    built.map((m) => m.role),
+    ['system', 'user', 'assistant', 'system', 'user'],
+  );
+  assert.equal(built[3].content, 'РАЗОВОЕ ПРАВИЛО');
+  assert.equal(built[4].content, 'бью дракона');
+});
+
+test('ephemeralSystem НЕ оседает в памяти сессии', (t) => {
+  const storePath = tmpPath('ephemeral-not-persisted');
+  t.after(() => fs.rmSync(storePath, { force: true }));
+
+  const mm = new MemoryManager({ storePath });
+  mm.buildMessages('s1', { prompt: 'ход', ephemeralSystem: 'успех гарантирован' });
+
+  // Ради этого свойства слот и заведён. Подмешать директиву в prompt было бы
+  // проще, но тогда одноразовое правило действовало бы все следующие ходы.
+  assert.equal(mm.get('s1').length, 0);
+
+  mm.append('s1', 'user', 'ход');
+  const next = mm.buildMessages('s1', { prompt: 'следующий ход' });
+  assert.ok(!next.some((m) => m.content.includes('успех гарантирован')));
+});
+
 test('clear() удаляет сессию и это сохраняется на диске', (t) => {
   const storePath = tmpPath('clear');
   t.after(() => fs.rmSync(storePath, { force: true }));

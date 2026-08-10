@@ -100,10 +100,25 @@ export class MemoryManager {
     return [...sticky, ...kept];
   }
 
-  buildMessages(sessionId, { systemPrompt, prompt }) {
+  /**
+   * `ephemeralSystem` — правило на ОДИН ответ: одноразовый предмет, разовая
+   * поблажка, временный режим. Два свойства делают его тем, чем он должен
+   * быть, и оба обязательны:
+   *
+   * 1. Ставится ПОСЛЕ истории, вплотную к реплике игрока. `systemPrompt`
+   *    уезжает в начало контекста и на длинной сессии тонет — модель тем
+   *    охотнее следует инструкции, чем она свежее.
+   * 2. НЕ попадает в память сессии. Вызывающий код кладёт в историю только
+   *    сам prompt (см. generate()), поэтому одноразовое правило исчезает
+   *    вместе с ходом. Подмешать его в prompt было бы проще, но тогда оно
+   *    осело бы в истории навсегда и молча действовало все следующие ходы —
+   *    ровно то, чем одноразовый предмет быть не должен.
+   */
+  buildMessages(sessionId, { systemPrompt, prompt, ephemeralSystem }) {
     const messages = [];
     if (systemPrompt) messages.push({ role: 'system', content: systemPrompt });
     messages.push(...this.#trimToBudget(this.get(sessionId)));
+    if (ephemeralSystem) messages.push({ role: 'system', content: ephemeralSystem });
     messages.push({ role: 'user', content: prompt });
     return messages;
   }

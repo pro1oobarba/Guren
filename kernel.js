@@ -27,6 +27,7 @@ import { log } from './utils/logger.js';
  * @property {string} prompt обязателен
  * @property {string} [sessionId] история сообщений накапливается по этому ключу; без него — разовый запрос без памяти
  * @property {string} [systemPrompt]
+ * @property {string} [ephemeralSystem] правило на один ответ: ставится вплотную к prompt и не сохраняется в память сессии
  * @property {number} [timeoutMs] дефолт — DEFAULT_TIMEOUT_MS в router/Router.js (45с)
  * @property {object[]} [tools] формат OpenAI tools API, пробрасывается как есть — поддержку со стороны конкретной модели/провайдера ядро не проверяет
  * @property {string | object} [toolChoice] см. OpenAI tool_choice
@@ -162,7 +163,7 @@ export class AIKernel {
    * @param {GenerateArgs} args
    * @returns {Promise<GenerateResult>}
    */
-  async generate({ task, prompt, sessionId, systemPrompt, timeoutMs, tools, toolChoice, responseFormat, maxTokens, temperature, stream, onToken }) {
+  async generate({ task, prompt, sessionId, systemPrompt, ephemeralSystem, timeoutMs, tools, toolChoice, responseFormat, maxTokens, temperature, stream, onToken }) {
     if (!prompt) throw new Error('generate(): параметр prompt обязателен');
 
     // task не передан явно — эвристика по тексту промпта вместо жёсткого
@@ -170,7 +171,7 @@ export class AIKernel {
     // включая явное 'general', всегда имеет приоритет над эвристикой.
     const resolvedTask = task ?? classifyTask(prompt);
 
-    const messages = this.memory.buildMessages(sessionId, { systemPrompt, prompt });
+    const messages = this.memory.buildMessages(sessionId, { systemPrompt, prompt, ephemeralSystem });
 
     let result;
     try {
