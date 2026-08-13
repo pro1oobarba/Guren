@@ -12,6 +12,7 @@
   },
   "scripts": {
     "start": "node --env-file=.env index.js",
+    "serve": "node --env-file=.env server.js",
     "health": "node --env-file=.env -e \"import('./kernel.js').then(({ AI }) => AI.init())\"",
     "doctor": "node scripts/checkEnv.js",
     "test": "node --test",

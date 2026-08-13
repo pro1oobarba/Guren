@@ -1,0 +1,8 @@
+.env
+.git
+node_modules
+memory-store.json
+usage.json
+health-report.json
+*.log
+.claude
