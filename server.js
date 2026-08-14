@@ -58,7 +58,7 @@ const server = http.createServer(async (req, res) => {
     try {
       const { byokEnv, ...args } = await readJsonBody(req);
       const kernel = await getKernelFor(byokEnv);
-      const result = await kernel.generate(args);
+      const result = args.images ? await kernel.generateVision(args) : await kernel.generate(args);
       return send(res, 200, result);
     } catch (err) {
       log.error(`POST /generate: ${err.message}`);

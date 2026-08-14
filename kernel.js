@@ -211,6 +211,55 @@ export class AIKernel {
     return result;
   }
 
+  /**
+   * Vision-запрос (фото + текст) — сейчас только через Gemini: единственный
+   * провайдер в стеке с надёжной поддержкой image_url в OpenAI-совместимом
+   * формате. Не через общий Router (там модели не размечены по vision-
+   * способности) — перебирает живые модели Gemini из реестра вручную,
+   * с простым fallback на следующую при ошибке.
+   * @param {{ prompt: string, sessionId?: string, systemPrompt?: string, images: { mimeType: string, base64: string }[], responseFormat?: object }} args
+   * @returns {Promise<GenerateResult>}
+   */
+  async generateVision({ prompt, sessionId, systemPrompt, images, responseFormat }) {
+    if (!prompt) throw new Error('generateVision(): параметр prompt обязателен');
+    if (!images?.length) throw new Error('generateVision(): нужен хотя бы один image в images');
+
+    const gemini = this.providers.gemini;
+    if (!gemini?.enabled) throw new Error('generateVision(): провайдер gemini недоступен (нет ключа)');
+
+    const messages = this.memory.buildMessages(sessionId, { systemPrompt, prompt: '' });
+    messages[messages.length - 1] = {
+      role: 'user',
+      content: [
+        { type: 'text', text: prompt },
+        ...images.map((img) => ({
+          type: 'image_url',
+          image_url: { url: `data:${img.mimeType};base64,${img.base64}` },
+        })),
+      ],
+    };
+
+    const candidates = this.registry
+      .all()
+      .filter((e) => e.provider === 'gemini' && e.alive)
+      .map((e) => e.modelId);
+    if (!candidates.length) throw new Error('generateVision(): нет живых моделей Gemini — запусти AI.init()');
+
+    let lastError;
+    for (const modelId of candidates) {
+      try {
+        const result = await gemini.chat(modelId, messages, { responseFormat });
+        this.memory.append(sessionId, 'user', `[фото] ${prompt}`);
+        this.memory.append(sessionId, 'assistant', result.content);
+        this.usage.record('gemini', modelId, result.usage);
+        return { text: result.content, toolCalls: null, usage: result.usage ?? null, provider: 'gemini', modelId };
+      } catch (err) {
+        lastError = err;
+      }
+    }
+    throw lastError ?? new Error('generateVision(): все модели Gemini недоступны');
+  }
+
   /** Расход за сегодня по провайдеру/модели — см. utils/usageTracker.js. */
   usageToday() {
     return this.usage.today();
