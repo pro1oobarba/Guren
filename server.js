@@ -51,6 +51,27 @@ const server = http.createServer(async (req, res) => {
     return send(res, 200, { ok: true, providers: Object.values(AI.providers).filter((p) => p.enabled).map((p) => p.name) });
   }
 
+  if (req.method === 'GET' && req.url === '/usage') {
+    if (API_KEY && req.headers.authorization !== `Bearer ${API_KEY}`) {
+      return send(res, 401, { error: 'unauthorized' });
+    }
+    return send(res, 200, {
+      today: AI.usageToday(),
+      note:
+        'requests — реально сделанные вызовы за сегодня (с последнего рестарта процесса, ' +
+        'счётчик не переживает деплой). "referenceLimits" — ориентировочные бесплатные ' +
+        'потолки по памяти, НЕ проверены live против текущих условий провайдеров — только ' +
+        'для грубой прикидки, не для точного планирования.',
+      referenceLimits: {
+        groq: '~30 запросов/мин, несколько тысяч/день на модель (варьируется)',
+        gemini: '~15 запросов/мин, ~1500/день на модель (варьируется по модели)',
+        cloudflare: 'дневной бюджет "нейронов", грубо сотни запросов/день',
+        cerebras: '~30 запросов/мин',
+        sambanova: 'лимиты по RPM, не задокументированы точно',
+      },
+    });
+  }
+
   if (req.method === 'POST' && req.url === '/generate') {
     if (API_KEY && req.headers.authorization !== `Bearer ${API_KEY}`) {
       return send(res, 401, { error: 'unauthorized' });
