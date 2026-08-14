@@ -239,9 +239,12 @@ export class AIKernel {
       ],
     };
 
+    // thinking-варианты (напр. gemma-*-thinking) заворачивают ответ в
+    // <thought>...</thought> даже при responseFormat: json_object —
+    // ломает JSON.parse() у вызывающего кода. Исключаем их из vision.
     const candidates = this.registry
       .all()
-      .filter((e) => e.provider === 'gemini' && e.alive)
+      .filter((e) => e.provider === 'gemini' && e.alive && !/thinking/i.test(e.modelId))
       .map((e) => e.modelId);
     if (!candidates.length) throw new Error('generateVision(): нет живых моделей Gemini — запусти AI.init()');
 
@@ -249,10 +252,15 @@ export class AIKernel {
     for (const modelId of candidates) {
       try {
         const result = await gemini.chat(modelId, messages, { responseFormat });
+        // Некоторые Gemini/Gemma-модели заворачивают ответ в
+        // <thought>...</thought> даже при responseFormat: json_object,
+        // независимо от того, помечены ли они "-thinking" в названии —
+        // ломает JSON.parse() у вызывающего кода. Срезаем безусловно.
+        const text = result.content.replace(/^<thought>[\s\S]*?<\/thought>/i, '').trim();
         this.memory.append(sessionId, 'user', `[фото] ${prompt}`);
-        this.memory.append(sessionId, 'assistant', result.content);
+        this.memory.append(sessionId, 'assistant', text);
         this.usage.record('gemini', modelId, result.usage);
-        return { text: result.content, toolCalls: null, usage: result.usage ?? null, provider: 'gemini', modelId };
+        return { text, toolCalls: null, usage: result.usage ?? null, provider: 'gemini', modelId };
       } catch (err) {
         lastError = err;
       }
