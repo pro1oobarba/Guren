@@ -242,16 +242,24 @@ export class AIKernel {
     // thinking-варианты (напр. gemma-*-thinking) заворачивают ответ в
     // <thought>...</thought> даже при responseFormat: json_object —
     // ломает JSON.parse() у вызывающего кода. Исключаем их из vision.
+    // Ограничиваем до 2 кандидатов: без этого перебор всех живых моделей
+    // без таймаута на попытку может растянуться дольше, чем ждёт вызывающая
+    // сторона (у Prime Bot вебхук отваливается по таймауту) — поймали
+    // вживую (запрос "завис" на ~25с и бот промолчал вместо ответа).
     const candidates = this.registry
       .all()
       .filter((e) => e.provider === 'gemini' && e.alive && !/thinking/i.test(e.modelId))
-      .map((e) => e.modelId);
+      .map((e) => e.modelId)
+      .slice(0, 2);
     if (!candidates.length) throw new Error('generateVision(): нет живых моделей Gemini — запусти AI.init()');
 
+    const VISION_ATTEMPT_TIMEOUT_MS = 12000;
     let lastError;
     for (const modelId of candidates) {
+      const controller = new AbortController();
+      const timer = setTimeout(() => controller.abort(), VISION_ATTEMPT_TIMEOUT_MS);
       try {
-        const result = await gemini.chat(modelId, messages, { responseFormat });
+        const result = await gemini.chat(modelId, messages, { responseFormat, signal: controller.signal });
         // Некоторые Gemini/Gemma-модели заворачивают ответ в
         // <thought>...</thought> даже при responseFormat: json_object,
         // независимо от того, помечены ли они "-thinking" в названии —
@@ -263,6 +271,8 @@ export class AIKernel {
         return { text, toolCalls: null, usage: result.usage ?? null, provider: 'gemini', modelId };
       } catch (err) {
         lastError = err;
+      } finally {
+        clearTimeout(timer);
       }
     }
     throw lastError ?? new Error('generateVision(): все модели Gemini недоступны');
