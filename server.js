@@ -57,6 +57,13 @@ const server = http.createServer(async (req, res) => {
     }
     try {
       const { byokEnv, ...args } = await readJsonBody(req);
+      // Транскрипция всегда через общий Groq-ключ, не через BYOK — BYOK
+      // сейчас покрывает только текст/vision (gemini/openrouter), у Groq
+      // отдельный multipart-эндпоинт, который в BYOK-обвязку ещё не завели.
+      if (args.audioBase64) {
+        const text = await AI.providers.groq.transcribe(args.audioBase64, args.filename);
+        return send(res, 200, { text, provider: 'groq', modelId: 'whisper-large-v3-turbo' });
+      }
       const kernel = await getKernelFor(byokEnv);
       const result = args.images ? await kernel.generateVision(args) : await kernel.generate(args);
       return send(res, 200, result);

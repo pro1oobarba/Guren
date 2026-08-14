@@ -34,4 +34,27 @@ export class GroqProvider extends BaseProvider {
     const args = { baseUrl: this.baseUrl, apiKey: this.apiKey, modelId, messages, options };
     return options.stream ? this._openAIChatStream(args) : this._openAIChat(args);
   }
+
+  /**
+   * Whisper-транскрипция (multipart, отдельный эндпоинт от chat completions).
+   * Бесплатный лимит Groq покрывает и это — не нужен отдельный STT-провайдер.
+   * @param {string} audioBase64
+   * @param {string} filename расширение важно для Whisper (ogg/mp3/wav/...)
+   * @returns {Promise<string>} распознанный текст
+   */
+  async transcribe(audioBase64, filename = 'audio.ogg') {
+    if (!this.enabled) throw new Error('Groq выключен — нет GROQ_API_KEY в .env');
+    const bytes = Uint8Array.from(atob(audioBase64), (c) => c.charCodeAt(0));
+    const form = new FormData();
+    form.append('file', new Blob([bytes]), filename);
+    form.append('model', 'whisper-large-v3-turbo');
+    const res = await fetch(`${this.baseUrl}/audio/transcriptions`, {
+      method: 'POST',
+      headers: { Authorization: `Bearer ${this.apiKey}` },
+      body: form,
+    });
+    if (!res.ok) throw new Error(`Groq transcribe: HTTP ${res.status} ${await res.text()}`);
+    const data = await res.json();
+    return data.text;
+  }
 }
